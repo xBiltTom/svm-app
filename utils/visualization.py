@@ -323,7 +323,17 @@ def plot_roc_with_auc(model, X_test, y_test, scaler, class_names=None):
     from sklearn.preprocessing import label_binarize
     
     X_test_scaled = scaler.transform(X_test)
-    n_classes = len(np.unique(y_test))
+    
+    # Obtener clases únicas en y_test (ordenadas)
+    unique_classes = np.unique(y_test)
+    n_classes = len(unique_classes)
+    
+    # Convertir class_names a lista si es necesario y validar
+    if class_names is not None:
+        if hasattr(class_names, '__iter__') and not isinstance(class_names, str):
+            class_names = list(class_names)
+        else:
+            class_names = None
     
     fig, ax = plt.subplots(figsize=(10, 8))
     
@@ -350,7 +360,9 @@ def plot_roc_with_auc(model, X_test, y_test, scaler, class_names=None):
         
     else:
         # Clasificación multiclase
-        y_test_bin = label_binarize(y_test, classes=np.unique(y_test))
+        # Usar model.classes_ para asegurar que las columnas coincidan con predict_proba
+        model_classes = model.classes_
+        y_test_bin = label_binarize(y_test, classes=model_classes)
         y_score = model.predict_proba(X_test_scaled)
         
         # Calcular ROC para cada clase
@@ -358,13 +370,21 @@ def plot_roc_with_auc(model, X_test, y_test, scaler, class_names=None):
         tpr = dict()
         roc_auc = dict()
         
-        for i in range(n_classes):
-            fpr[i], tpr[i], _ = roc_curve(y_test_bin[:, i], y_score[:, i])
-            roc_auc[i] = auc(fpr[i], tpr[i])
+        for idx, class_idx in enumerate(model_classes):
+            fpr[idx], tpr[idx], _ = roc_curve(y_test_bin[:, idx], y_score[:, idx])
+            roc_auc[idx] = auc(fpr[idx], tpr[idx])
             
-            class_label = class_names[i] if class_names else f'Clase {i}'
-            ax.plot(fpr[i], tpr[i], lw=2, 
-                   label=f'{class_label} (AUC = {roc_auc[i]:.3f})')
+            # Mapear correctamente el índice de la clase al nombre
+            if class_names is not None and len(class_names) > class_idx:
+                try:
+                    class_label = class_names[class_idx]
+                except (IndexError, TypeError):
+                    class_label = f'Clase {class_idx}'
+            else:
+                class_label = f'Clase {class_idx}'
+            
+            ax.plot(fpr[idx], tpr[idx], lw=2, 
+                   label=f'{class_label} (AUC = {roc_auc[idx]:.3f})')
         
         # ROC micro-average
         fpr_micro, tpr_micro, _ = roc_curve(y_test_bin.ravel(), y_score.ravel())
