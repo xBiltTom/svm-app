@@ -32,8 +32,8 @@ env/
 *.swo
 *~
 
-# Streamlit
-.streamlit/
+# Streamlit (excluir secretos pero permitir config)
+.streamlit/secrets.toml
 
 # Jupyter Notebook
 .ipynb_checkpoints
