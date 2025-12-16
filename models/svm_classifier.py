@@ -323,7 +323,12 @@ def get_grid_search_results_df(grid_search_results):
     params_df = pd.json_normalize(results_df['params'])
     results_df = pd.concat([params_df, results_df.drop('params', axis=1)], axis=1)
     
+    # Convertir columnas de parámetros a string para evitar problemas con Arrow
+    param_cols = [col for col in results_df.columns if col.startswith('svm__')]
+    for col in param_cols:
+        results_df[col] = results_df[col].astype(str)
+    
     # Ordenar por score
-    results_df = results_df.sort_values('mean_test_score', ascending=False)
+    results_df = results_df.sort_values('mean_test_score', ascending=False).reset_index(drop=True)
     
     return results_df
