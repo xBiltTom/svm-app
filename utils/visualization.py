@@ -408,3 +408,95 @@ def plot_roc_with_auc(model, X_test, y_test, scaler, class_names=None):
     
     plt.tight_layout()
     return fig
+
+def plot_grid_search_results(results_df, top_n=10):
+    """
+    Visualiza los mejores resultados del Grid Search
+    """
+    top_results = results_df.head(top_n)
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Gráfico 1: Top N configuraciones
+    y_pos = np.arange(len(top_results))
+    scores = top_results['mean_test_score'].values
+    stds = top_results['std_test_score'].values
+    
+    # Crear etiquetas para cada configuración
+    labels = []
+    for idx, row in top_results.iterrows():
+        kernel = row.get('svm__kernel', 'N/A')
+        C = row.get('svm__C', 'N/A')
+        gamma = row.get('svm__gamma', 'N/A')
+        label = f"K:{kernel}, C:{C}, γ:{gamma}"
+        labels.append(label)
+    
+    ax1.barh(y_pos, scores, xerr=stds, align='center', alpha=0.7, 
+             color=plt.cm.viridis(scores / scores.max()))
+    ax1.set_yticks(y_pos)
+    ax1.set_yticklabels(labels, fontsize=9)
+    ax1.invert_yaxis()
+    ax1.set_xlabel('Score (mean ± std)', fontsize=11, fontweight='bold')
+    ax1.set_title(f'Top {top_n} Configuraciones', fontsize=13, fontweight='bold')
+    ax1.grid(True, alpha=0.3, axis='x')
+    
+    # Gráfico 2: Comparación Train vs Test Score
+    train_scores = top_results['mean_train_score'].values
+    test_scores = top_results['mean_test_score'].values
+    
+    x = np.arange(len(top_results))
+    width = 0.35
+    
+    ax2.bar(x - width/2, train_scores, width, label='Train Score', alpha=0.8, color='skyblue')
+    ax2.bar(x + width/2, test_scores, width, label='Test Score', alpha=0.8, color='coral')
+    
+    ax2.set_xlabel('Configuración (por ranking)', fontsize=11, fontweight='bold')
+    ax2.set_ylabel('Score', fontsize=11, fontweight='bold')
+    ax2.set_title('Train vs Test Score', fontsize=13, fontweight='bold')
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([f'#{i+1}' for i in range(len(top_results))])
+    ax2.legend()
+    ax2.grid(True, alpha=0.3, axis='y')
+    ax2.set_ylim([min(test_scores.min(), train_scores.min()) - 0.05, 1.05])
+    
+    plt.tight_layout()
+    return fig
+
+def plot_param_importance(results_df):
+    """
+    Analiza la importancia de cada parámetro en el Grid Search
+    """
+    # Identificar columnas de parámetros
+    param_cols = [col for col in results_df.columns if col.startswith('svm__')]
+    
+    if len(param_cols) == 0:
+        return None
+    
+    n_params = len(param_cols)
+    fig, axes = plt.subplots(1, n_params, figsize=(6*n_params, 5))
+    
+    if n_params == 1:
+        axes = [axes]
+    
+    for idx, param_col in enumerate(param_cols):
+        ax = axes[idx]
+        
+        # Agrupar por parámetro y calcular score promedio
+        grouped = results_df.groupby(param_col)['mean_test_score'].agg(['mean', 'std']).reset_index()
+        grouped = grouped.sort_values('mean', ascending=False)
+        
+        # Gráfico de barras
+        x_pos = np.arange(len(grouped))
+        ax.bar(x_pos, grouped['mean'].values, yerr=grouped['std'].values, 
+               alpha=0.7, color=plt.cm.Set2(np.linspace(0, 1, len(grouped))))
+        
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(grouped[param_col].values, rotation=45, ha='right')
+        ax.set_ylabel('Score Promedio', fontsize=10, fontweight='bold')
+        ax.set_title(param_col.replace('svm__', '').upper(), fontsize=11, fontweight='bold')
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_ylim([0, 1.05])
+    
+    plt.tight_layout()
+    return fig
+
