@@ -11,18 +11,39 @@ sns.set_palette("husl")
 
 def plot_confusion_matrix(y_true, y_pred, class_names, title="Matriz de Confusión"):
     """
-    Crea un heatmap de la matriz de confusión
+    Crea un heatmap de la matriz de confusión con anotaciones claras
     """
     cm = confusion_matrix(y_true, y_pred)
     
-    fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=class_names, yticklabels=class_names,
-                cbar_kws={'label': 'Cantidad'})
+    # Calcular porcentajes
+    cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
     
-    ax.set_xlabel('Predicción', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Valor Real', fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Crear anotaciones combinadas (cantidad y porcentaje)
+    annot = np.array([[f'{value}\n({percent:.1f}%)' 
+                       for value, percent in zip(row_cm, row_percent)]
+                      for row_cm, row_percent in zip(cm, cm_percent)])
+    
+    sns.heatmap(cm, annot=annot, fmt='', cmap='Blues', 
+                xticklabels=class_names, yticklabels=class_names,
+                cbar_kws={'label': 'Cantidad de predicciones'},
+                linewidths=2, linecolor='white',
+                ax=ax)
+    
+    ax.set_xlabel('Predicción del Modelo', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Clase Real', fontsize=14, fontweight='bold')
+    ax.set_title(f'{title}\n(Valores: cantidad y % por fila)', 
+                fontsize=16, fontweight='bold', pad=20)
+    
+    # Agregar texto explicativo
+    total_correct = np.trace(cm)
+    total = cm.sum()
+    accuracy = total_correct / total * 100
+    
+    ax.text(0.5, -0.15, f'Predicciones correctas: {total_correct}/{total} ({accuracy:.1f}%)',
+            transform=ax.transAxes, ha='center', fontsize=12,
+            bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5))
     
     plt.tight_layout()
     return fig
@@ -41,7 +62,7 @@ def plot_decision_boundary(model, scaler, X, y, feature_x_idx, feature_y_idx,
     temp_model = SVC(kernel=model.kernel, C=model.C, gamma=model.gamma)
     temp_model.fit(X_2d_scaled, y)
     
-    fig, ax = plt.subplots(figsize=(10, 8))
+    fig, ax = plt.subplots(figsize=(12, 9))
     
     # Crear malla de puntos
     x_min, x_max = X_2d_scaled[:, 0].min() - 0.5, X_2d_scaled[:, 0].max() + 0.5
@@ -53,35 +74,47 @@ def plot_decision_boundary(model, scaler, X, y, feature_x_idx, feature_y_idx,
     Z = temp_model.predict(np.c_[xx.ravel(), yy.ravel()])
     Z = Z.reshape(xx.shape)
     
-    # Plotear frontera de decisión
-    ax.contourf(xx, yy, Z, alpha=0.3, cmap='viridis')
+    # Plotear frontera de decisión con contornos más claros
+    contour = ax.contourf(xx, yy, Z, alpha=0.4, cmap='RdYlBu', levels=len(np.unique(y)))
     
-    # Plotear puntos de datos
-    scatter = ax.scatter(X_2d_scaled[:, 0], X_2d_scaled[:, 1], 
-                        c=y, cmap='viridis', edgecolors='black', 
-                        s=100, alpha=0.7)
+    # Plotear puntos de datos con mejor contraste
+    unique_classes = np.unique(y)
+    colors = plt.cm.RdYlBu(np.linspace(0, 1, len(unique_classes)))
     
-    # Plotear vectores de soporte
+    for i, cls in enumerate(unique_classes):
+        mask = y == cls
+        class_name = class_names[i] if i < len(class_names) else f'Clase {cls}'
+        ax.scatter(X_2d_scaled[mask, 0], X_2d_scaled[mask, 1], 
+                  c=[colors[i]], edgecolors='black', linewidth=1.5,
+                  s=120, alpha=0.8, label=class_name)
+    
+    # Plotear vectores de soporte con mayor énfasis
     support_vectors = temp_model.support_vectors_
     ax.scatter(support_vectors[:, 0], support_vectors[:, 1], 
-              s=200, linewidth=2, facecolors='none', 
-              edgecolors='red', label='Vectores de Soporte')
+              s=250, linewidth=3, facecolors='none', 
+              edgecolors='red', label=f'Vectores de Soporte ({len(support_vectors)})',
+              marker='o')
     
-    ax.set_xlabel(feature_x_name, fontsize=12, fontweight='bold')
-    ax.set_ylabel(feature_y_name, fontsize=12, fontweight='bold')
-    ax.set_title('Frontera de Decisión del SVM', fontsize=14, fontweight='bold', pad=20)
-    ax.legend()
+    ax.set_xlabel(f'{feature_x_name}\n(valores escalados)', fontsize=13, fontweight='bold')
+    ax.set_ylabel(f'{feature_y_name}\n(valores escalados)', fontsize=13, fontweight='bold')
+    ax.set_title(f'Frontera de Decisión del SVM\nKernel: {model.kernel} | C: {model.C}', 
+                fontsize=15, fontweight='bold', pad=20)
     
-    # Añadir colorbar
-    cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label('Clase', fontsize=10)
+    # Leyenda más clara
+    ax.legend(loc='best', fontsize=11, framealpha=0.9, edgecolor='black')
+    ax.grid(True, alpha=0.3, linestyle='--')
+    
+    # Añadir explicación
+    ax.text(0.02, 0.98, 'Regiones de color = Áreas de decisión\nPuntos rojos = Vectores críticos', 
+            transform=ax.transAxes, fontsize=10, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
     
     plt.tight_layout()
     return fig
 
 def plot_roc_curve(model, X_test, y_test, scaler):
     """
-    Genera la curva ROC para clasificación binaria
+    Genera la curva ROC para clasificación binaria de forma más descriptiva
     """
     X_test_scaled = scaler.transform(X_test)
     
@@ -92,21 +125,55 @@ def plot_roc_curve(model, X_test, y_test, scaler):
     fpr, tpr, _ = roc_curve(y_test, y_score)
     roc_auc = auc(fpr, tpr)
     
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(12, 9))
     
-    ax.plot(fpr, tpr, color='darkorange', lw=2, 
-            label=f'Curva ROC (AUC = {roc_auc:.2f})')
+    # Curva ROC principal con mejor grosor
+    ax.plot(fpr, tpr, color='darkorange', lw=3, 
+            label=f'Curva ROC (AUC = {roc_auc:.3f})')
+    
+    # Línea diagonal de referencia
     ax.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', 
-            label='Clasificador Aleatorio')
+            label='Clasificador Aleatorio (AUC = 0.500)')
+    
+    # Añadir texto interpretativo
+    if roc_auc >= 0.9:
+        interpretation = "Excelente"
+        color = 'green'
+    elif roc_auc >= 0.8:
+        interpretation = "Muy Bueno"
+        color = 'yellowgreen'
+    elif roc_auc >= 0.7:
+        interpretation = "Bueno"
+        color = 'orange'
+    else:
+        interpretation = "Regular"
+        color = 'red'
+    
+    ax.text(0.6, 0.2, f'Desempeño: {interpretation}', 
+           fontsize=14, fontweight='bold', color=color,
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor=color, linewidth=2))
     
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel('Tasa de Falsos Positivos', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Tasa de Verdaderos Positivos', fontsize=12, fontweight='bold')
-    ax.set_title('Curva ROC (Receiver Operating Characteristic)', 
+    ax.set_xlabel('Tasa de Falsos Positivos (FPR)\n(Proporción de negativos incorrectamente clasificados)', 
+                 fontsize=12, fontweight='bold')
+    ax.set_ylabel('Tasa de Verdaderos Positivos (TPR)\n(Proporción de positivos correctamente clasificados)', 
+                 fontsize=12, fontweight='bold')
+    ax.set_title('Curva ROC - Característica Operativa del Receptor\nMayor área = Mejor discriminación', 
                 fontsize=14, fontweight='bold', pad=20)
-    ax.legend(loc="lower right")
-    ax.grid(True, alpha=0.3)
+    ax.legend(loc="lower right", fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    
+    # Añadir guía de interpretación
+    guide_text = ('Interpretación AUC:\n'
+                 '0.90-1.00 = Excelente\n'
+                 '0.80-0.90 = Muy Bueno\n'
+                 '0.70-0.80 = Bueno\n'
+                 '0.60-0.70 = Regular\n'
+                 '< 0.60 = Pobre')
+    ax.text(0.02, 0.98, guide_text, transform=ax.transAxes, 
+           fontsize=9, verticalalignment='top',
+           bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
     
     plt.tight_layout()
     return fig
@@ -224,45 +291,79 @@ def plot_metrics_comparison(metrics_dict, title="Comparación de Métricas"):
 
 def plot_cv_results(cv_results, title="Resultados de Validación Cruzada"):
     """
-    Visualiza los resultados de validación cruzada con múltiples métricas
+    Visualiza los resultados de validación cruzada de forma clara y descriptiva
     """
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(14, 8))
     
     metrics_names = ['accuracy', 'precision', 'recall', 'f1']
-    metrics_display = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
+    metrics_display = ['Accuracy\n(Exactitud Global)', 
+                      'Precision\n(Acierto en Positivos)', 
+                      'Recall\n(Sensibilidad)', 
+                      'F1-Score\n(Balance P&R)']
     means = [cv_results[m]['mean'] for m in metrics_names]
     stds = [cv_results[m]['std'] for m in metrics_names]
     
     x = np.arange(len(metrics_display))
     width = 0.6
     
-    bars = ax.bar(x, means, width, alpha=0.8, color='steelblue', 
-                  yerr=stds, capsize=10, error_kw={'linewidth': 2, 'ecolor': 'darkred'})
+    # Colorear barras según su rendimiento
+    colors = []
+    for mean in means:
+        if mean >= 0.9:
+            colors.append('darkgreen')
+        elif mean >= 0.8:
+            colors.append('yellowgreen')
+        elif mean >= 0.7:
+            colors.append('orange')
+        else:
+            colors.append('red')
+    
+    bars = ax.bar(x, means, width, alpha=0.7, color=colors, 
+                  yerr=stds, capsize=12, error_kw={'linewidth': 2.5, 'ecolor': 'black'})
     
     # Añadir valores en las barras
     for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
         height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.02,
-                f'{mean:.3f}\n±{std:.3f}',
-                ha='center', va='bottom', fontweight='bold', fontsize=10)
+        # Valor principal
+        ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.03,
+                f'{mean:.2%}',
+                ha='center', va='bottom', fontweight='bold', fontsize=13)
+        # Desviación estándar
+        ax.text(bar.get_x() + bar.get_width()/2., height/2,
+                f'±{std:.3f}',
+                ha='center', va='center', fontweight='bold', fontsize=10,
+                color='white')
     
-    ax.set_xlabel('Métricas', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Valor', fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    ax.set_xlabel('Métricas de Evaluación', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Valor de la Métrica', fontsize=13, fontweight='bold')
+    ax.set_title(f'{title}\nPromedio de {len(cv_results["accuracy"]["scores"])} Folds de Validación Cruzada', 
+                fontsize=15, fontweight='bold', pad=20)
     ax.set_xticks(x)
-    ax.set_xticklabels(metrics_display)
-    ax.set_ylim([0, 1.15])
-    ax.grid(True, axis='y', alpha=0.3)
-    ax.axhline(y=0.5, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+    ax.set_xticklabels(metrics_display, fontsize=11)
+    ax.set_ylim([0, 1.2])
+    ax.grid(True, axis='y', alpha=0.3, linestyle='--')
+    ax.axhline(y=0.5, color='gray', linestyle='--', linewidth=2, alpha=0.5, 
+              label='Línea base (50%)')
     
+    # Leyenda de interpretación
+    legend_text = ('Interpretación:\n'
+                  '≥90% = Excelente\n'
+                  '80-90% = Muy Bueno\n'
+                  '70-80% = Bueno\n'
+                  '<70% = Requiere mejora')
+    ax.text(0.98, 0.98, legend_text, transform=ax.transAxes, 
+           fontsize=10, verticalalignment='top', horizontalalignment='right',
+           bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9, edgecolor='black'))
+    
+    ax.legend(loc='upper left', fontsize=10)
     plt.tight_layout()
     return fig
 
-def plot_cv_folds_comparison(fold_results, title="Comparación de Métricas por Fold"):
+def plot_cv_folds_comparison(fold_results, title="Rendimiento Individual de Cada Fold"):
     """
-    Compara las métricas de cada fold en la validación cruzada
+    Muestra el rendimiento de cada fold con una línea de tendencia clara
     """
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
     
     folds = [f['fold'] for f in fold_results]
     accuracy = [f['metrics']['accuracy'] for f in fold_results]
@@ -270,48 +371,166 @@ def plot_cv_folds_comparison(fold_results, title="Comparación de Métricas por 
     recall = [f['metrics']['recall'] for f in fold_results]
     f1 = [f['metrics']['f1'] for f in fold_results]
     
-    x = np.arange(len(folds))
-    width = 0.2
+    # Gráfico 1: Líneas de tendencia
+    ax1.plot(folds, accuracy, 'o-', label='Accuracy', linewidth=3, markersize=10, color='blue')
+    ax1.plot(folds, precision, 's-', label='Precision', linewidth=3, markersize=10, color='green')
+    ax1.plot(folds, recall, '^-', label='Recall', linewidth=3, markersize=10, color='orange')
+    ax1.plot(folds, f1, 'd-', label='F1-Score', linewidth=3, markersize=10, color='red')
     
-    ax.bar(x - 1.5*width, accuracy, width, label='Accuracy', alpha=0.8)
-    ax.bar(x - 0.5*width, precision, width, label='Precision', alpha=0.8)
-    ax.bar(x + 0.5*width, recall, width, label='Recall', alpha=0.8)
-    ax.bar(x + 1.5*width, f1, width, label='F1-Score', alpha=0.8)
+    # Añadir líneas de promedio
+    ax1.axhline(y=np.mean(accuracy), color='blue', linestyle='--', alpha=0.3)
+    ax1.axhline(y=np.mean(f1), color='red', linestyle='--', alpha=0.3)
     
-    ax.set_xlabel('Fold', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Valor', fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
-    ax.set_xticks(x)
-    ax.set_xticklabels([f'Fold {f}' for f in folds])
-    ax.legend(loc='lower right')
-    ax.set_ylim([0, 1.1])
-    ax.grid(True, axis='y', alpha=0.3)
+    ax1.set_xlabel('Número de Fold', fontsize=13, fontweight='bold')
+    ax1.set_ylabel('Valor de la Métrica', fontsize=13, fontweight='bold')
+    ax1.set_title('Evolución de Métricas por Fold\n(Busca consistencia entre folds)', 
+                 fontsize=14, fontweight='bold', pad=15)
+    ax1.legend(loc='lower right', fontsize=11, framealpha=0.9)
+    ax1.set_ylim([0, 1.1])
+    ax1.grid(True, alpha=0.3, linestyle='--')
+    ax1.set_xticks(folds)
     
+    # Gráfico 2: Tabla resumen con colores
+    metrics_summary = {
+        'Accuracy': [f'{np.mean(accuracy):.2%}', f'{np.std(accuracy):.3f}', f'{min(accuracy):.2%}', f'{max(accuracy):.2%}'],
+        'Precision': [f'{np.mean(precision):.2%}', f'{np.std(precision):.3f}', f'{min(precision):.2%}', f'{max(precision):.2%}'],
+        'Recall': [f'{np.mean(recall):.2%}', f'{np.std(recall):.3f}', f'{min(recall):.2%}', f'{max(recall):.2%}'],
+        'F1-Score': [f'{np.mean(f1):.2%}', f'{np.std(f1):.3f}', f'{min(f1):.2%}', f'{max(f1):.2%}']
+    }
+    
+    ax2.axis('tight')
+    ax2.axis('off')
+    
+    table_data = [['Métrica', 'Promedio', 'Desv. Est.', 'Mínimo', 'Máximo']]
+    for metric, values in metrics_summary.items():
+        table_data.append([metric] + values)
+    
+    table = ax2.table(cellText=table_data, cellLoc='center', loc='center',
+                     colWidths=[0.22, 0.19, 0.19, 0.19, 0.19])
+    table.auto_set_font_size(False)
+    table.set_fontsize(11)
+    table.scale(1, 3)
+    
+    # Colorear header
+    for i in range(5):
+        table[(0, i)].set_facecolor('#4472C4')
+        table[(0, i)].set_text_props(weight='bold', color='white')
+    
+    # Colorear filas alternadas
+    for i in range(1, 5):
+        color = '#E7E6E6' if i % 2 == 0 else 'white'
+        for j in range(5):
+            table[(i, j)].set_facecolor(color)
+            if j == 0:
+                table[(i, j)].set_text_props(weight='bold')
+    
+    ax2.set_title('Resumen Estadístico de Validación Cruzada\n(Baja desviación = Modelo estable)', 
+                 fontsize=14, fontweight='bold', pad=15)
+    
+    plt.suptitle(title, fontsize=16, fontweight='bold', y=1.00)
     plt.tight_layout()
     return fig
 
-def plot_cv_scores_distribution(cv_results, title="Distribución de Scores por Métrica"):
+def plot_cv_scores_distribution(cv_results, title="Consistencia del Modelo en Validación Cruzada"):
     """
-    Visualiza la distribución de scores en cada fold usando boxplot
+    Visualiza la consistencia del modelo mostrando la variabilidad entre folds
     """
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
     
     metrics_names = ['accuracy', 'precision', 'recall', 'f1']
     metrics_display = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
     
+    # Gráfico 1: Violín plot más informativo que boxplot
     data = [cv_results[m]['scores'] for m in metrics_names]
     
-    bp = ax.boxplot(data, labels=metrics_display, patch_artist=True,
-                    notch=True, showmeans=True,
-                    boxprops=dict(facecolor='lightblue', alpha=0.7),
-                    medianprops=dict(color='red', linewidth=2),
-                    meanprops=dict(marker='D', markerfacecolor='green', markersize=8))
+    parts = ax1.violinplot(data, positions=range(len(metrics_display)), 
+                           showmeans=True, showmedians=True, widths=0.7)
     
-    ax.set_ylabel('Valor', fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
-    ax.set_ylim([0, 1.1])
-    ax.grid(True, axis='y', alpha=0.3)
+    # Colorear violines
+    colors = ['blue', 'green', 'orange', 'red']
+    for pc, color in zip(parts['bodies'], colors):
+        pc.set_facecolor(color)
+        pc.set_alpha(0.6)
     
+    # Añadir puntos individuales para ver todos los folds
+    for i, (metric_data, color) in enumerate(zip(data, colors)):
+        y = metric_data
+        x = np.random.normal(i, 0.04, size=len(y))  # Jitter
+        ax1.scatter(x, y, alpha=0.6, s=80, color=color, edgecolors='black', linewidth=1)
+    
+    ax1.set_xticks(range(len(metrics_display)))
+    ax1.set_xticklabels(metrics_display, fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Valor de la Métrica', fontsize=13, fontweight='bold')
+    ax1.set_title('Distribución de Scores por Fold\n(Distribuciones estrechas = Mayor estabilidad)', 
+                 fontsize=14, fontweight='bold', pad=15)
+    ax1.set_ylim([0, 1.1])
+    ax1.grid(True, axis='y', alpha=0.3, linestyle='--')
+    ax1.axhline(y=0.5, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+    
+    # Añadir anotaciones de variabilidad
+    for i, m in enumerate(metrics_names):
+        std = cv_results[m]['std']
+        mean = cv_results[m]['mean']
+        variability = "Baja" if std < 0.02 else "Media" if std < 0.05 else "Alta"
+        color_var = 'green' if std < 0.02 else 'orange' if std < 0.05 else 'red'
+        ax1.text(i, 0.05, f'Var: {variability}', ha='center', fontsize=9, 
+                color=color_var, fontweight='bold',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+    
+    # Gráfico 2: Coeficiente de variación (CV) para evaluar estabilidad
+    cvs = [(cv_results[m]['std'] / cv_results[m]['mean']) * 100 if cv_results[m]['mean'] > 0 else 0 
+           for m in metrics_names]
+    
+    colors_cv = []
+    for cv_val in cvs:
+        if cv_val < 3:
+            colors_cv.append('darkgreen')
+        elif cv_val < 7:
+            colors_cv.append('yellowgreen')
+        elif cv_val < 12:
+            colors_cv.append('orange')
+        else:
+            colors_cv.append('red')
+    
+    bars = ax2.barh(metrics_display, cvs, color=colors_cv, alpha=0.7, edgecolor='black', linewidth=2)
+    
+    # Añadir valores
+    for i, (bar, cv_val) in enumerate(zip(bars, cvs)):
+        width = bar.get_width()
+        ax2.text(width + 0.5, bar.get_y() + bar.get_height()/2,
+                f'{cv_val:.1f}%',
+                ha='left', va='center', fontweight='bold', fontsize=12)
+    
+    ax2.set_xlabel('Coeficiente de Variación (%)', fontsize=13, fontweight='bold')
+    ax2.set_title('Estabilidad del Modelo\n(Menor % = Más consistente entre folds)', 
+                 fontsize=14, fontweight='bold', pad=15)
+    ax2.set_xlim([0, max(cvs) * 1.3 if max(cvs) > 0 else 15])
+    ax2.grid(True, axis='x', alpha=0.3, linestyle='--')
+    
+    # Líneas de referencia
+    ax2.axvline(x=3, color='green', linestyle='--', linewidth=1.5, alpha=0.5, label='Excelente (<3%)')
+    ax2.axvline(x=7, color='orange', linestyle='--', linewidth=1.5, alpha=0.5, label='Aceptable (<7%)')
+    ax2.legend(loc='lower right', fontsize=10)
+    
+    # Texto interpretativo
+    avg_cv = np.mean(cvs)
+    if avg_cv < 3:
+        interpretation = "El modelo es MUY ESTABLE"
+        color_interp = 'green'
+    elif avg_cv < 7:
+        interpretation = "El modelo es ESTABLE"
+        color_interp = 'yellowgreen'
+    else:
+        interpretation = "El modelo tiene VARIABILIDAD"
+        color_interp = 'red'
+    
+    ax2.text(0.98, 0.02, f'{interpretation}\nCV promedio: {avg_cv:.1f}%', 
+            transform=ax2.transAxes, fontsize=11, fontweight='bold',
+            ha='right', va='bottom', color=color_interp,
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, 
+                     edgecolor=color_interp, linewidth=2))
+    
+    plt.suptitle(title, fontsize=16, fontweight='bold', y=1.00)
     plt.tight_layout()
     return fig
 
