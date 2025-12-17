@@ -4,8 +4,8 @@ import numpy as np
 from utils.data_processing import load_data, preprocess_data, split_data
 from models.svm_classifier import train_svm, predict_svm, get_model_metrics, cross_validate_svm, perform_stratified_kfold
 from utils.visualization import (
-    plot_confusion_matrix, plot_decision_boundary, plot_feature_importance, 
-    plot_roc_curve, plot_roc_with_auc, plot_cv_results, 
+    plot_confusion_matrix, plot_decision_boundary, 
+    plot_roc_curve, plot_cv_results, 
     plot_cv_folds_comparison, plot_cv_scores_distribution
 )
 
@@ -66,89 +66,58 @@ if uploaded_file is not None:
     )
     
     if len(feature_columns) > 0:
-        # Selector de modo de entrenamiento
+        # Parámetros del modelo SVM
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🎯 Modo de Entrenamiento")
+        st.sidebar.subheader("🔧 Parámetros del SVM")
         
-        training_mode = st.sidebar.radio(
-            "Seleccionar modo:",
-            options=["Manual", "Búsqueda Automática (Grid Search)"],
-            index=0,
-            help="Manual: Configuras los parámetros manualmente\nBúsqueda Automática: El sistema encuentra los mejores parámetros"
+        kernel = st.sidebar.selectbox(
+            "Kernel",
+            options=['linear', 'poly', 'rbf', 'sigmoid'],
+            index=2,
+            help="Función kernel para el SVM"
         )
         
-        if training_mode == "Manual":
-            # Parámetros del modelo SVM (configuración manual)
-            st.sidebar.subheader("🔧 Parámetros del SVM")
-            
-            kernel = st.sidebar.selectbox(
-                "Kernel",
-                options=['linear', 'poly', 'rbf', 'sigmoid'],
-                index=2,
-                help="Función kernel para el SVM"
-            )
-            
-            C = st.sidebar.slider(
-                "Parámetro C (regularización)",
-                min_value=0.01,
-                max_value=100.0,
-                value=1.0,
-                step=0.01,
-                help="Controla el trade-off entre error de entrenamiento y margen"
-            )
-            
-            if kernel in ['rbf', 'poly', 'sigmoid']:
-                gamma = st.sidebar.selectbox(
-                    "Gamma",
-                    options=['scale', 'auto'],
-                    index=0,
-                    help="Coeficiente del kernel"
-                )
-            else:
-                gamma = 'scale'
-            
-            if kernel == 'poly':
-                degree = st.sidebar.slider(
-                    "Grado del polinomio",
-                    min_value=2,
-                    max_value=5,
-                    value=3,
-                    help="Grado para el kernel polinomial"
-                )
-            else:
-                degree = 3
+        C = st.sidebar.slider(
+            "Parámetro C (regularización)",
+            min_value=0.01,
+            max_value=100.0,
+            value=1.0,
+            step=0.01,
+            help="Controla el trade-off entre error de entrenamiento y margen"
+        )
         
-        else:  # Búsqueda Automática
-            st.sidebar.subheader("🔍 Configuración de Grid Search")
-            
-            search_mode = st.sidebar.selectbox(
-                "Modo de búsqueda",
-                options=['quick', 'balanced', 'exhaustive'],
-                index=1,
-                format_func=lambda x: {
-                    'quick': '⚡ Rápida (~50 combinaciones)',
-                    'balanced': '⚖️ Balanceada (~300 combinaciones)',
-                    'exhaustive': '🔬 Exhaustiva (~1000+ combinaciones)'
-                }[x],
-                help="Rápida: Prueba pocos parámetros\nBalanceada: Equilibrio entre tiempo y cobertura\nExhaustiva: Prueba todas las combinaciones (puede tardar mucho)"
+        if kernel in ['rbf', 'poly', 'sigmoid']:
+            gamma = st.sidebar.selectbox(
+                "Gamma",
+                options=['scale', 'auto'],
+                index=0,
+                help="Coeficiente del kernel"
             )
-            
-            cv_folds_grid = st.sidebar.slider(
-                "Folds para Cross-Validation",
-                min_value=3,
-                max_value=10,
-                value=5,
-                help="Número de particiones para validación cruzada"
-            )
+        else:
+            gamma = 'scale'
         
-        # Parámetros comunes para ambos modos
+        if kernel == 'poly':
+            degree = st.sidebar.slider(
+                "Grado del polinomio",
+                min_value=2,
+                max_value=5,
+                value=3,
+                help="Grado para el kernel polinomial"
+            )
+        else:
+            degree = 3
+        
+        # Parámetros de división de datos
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("📊 División de Datos")
+        
         test_size = st.sidebar.slider(
             "Tamaño del conjunto de prueba (%)",
             min_value=10,
             max_value=50,
             value=30,
             step=5,
-            help="Porcentaje de datos para testing (70% entrenamiento / 30% prueba)"
+            help="Porcentaje de datos para testing"
         ) / 100
         
         random_state = st.sidebar.number_input(
@@ -160,113 +129,42 @@ if uploaded_file is not None:
         )
         
         # Botón de entrenamiento
-        if training_mode == "Manual":
-            button_label = "🚀 Entrenar Modelo"
-        else:
-            button_label = "🔍 Buscar Mejores Parámetros"
-        
-        if st.sidebar.button(button_label, type="primary", use_container_width=True):
-            with st.spinner("Entrenando modelo SVM..." if training_mode == "Manual" else "Buscando mejores parámetros..."):
+        if st.sidebar.button("🚀 Entrenar Modelo", type="primary", use_container_width=True):
+            with st.spinner("Entrenando modelo SVM..."):
                 try:
                     # Preparar datos
                     X, y, label_encoder = preprocess_data(df, feature_columns, target_column)
                     X_train, X_test, y_train, y_test = split_data(X, y, test_size, random_state)
                     
-                    if training_mode == "Manual":
-                        # Entrenamiento manual con parámetros especificados
-                        model, scaler = train_svm(
-                            X_train, y_train,
-                            kernel=kernel,
-                            C=C,
-                            gamma=gamma,
-                            degree=degree,
-                            random_state=random_state
-                        )
-                        
-                        # Guardar en session state (datos SIN escalar para CV correcta)
-                        st.session_state['model'] = model
-                        st.session_state['scaler'] = scaler
-                        st.session_state['X_train'] = X_train  # SIN escalar
-                        st.session_state['X_test'] = X_test    # SIN escalar
-                        st.session_state['y_train'] = y_train
-                        st.session_state['y_test'] = y_test
-                        st.session_state['label_encoder'] = label_encoder
-                        st.session_state['feature_columns'] = feature_columns
-                        st.session_state['target_column'] = target_column
-                        st.session_state['training_mode'] = 'manual'
-                        # Guardar parámetros del modelo
-                        st.session_state['model_params'] = {
-                            'kernel': kernel,
-                            'C': C,
-                            'gamma': gamma,
-                            'degree': degree
-                        }
-                        
-                        st.sidebar.success("✅ Modelo entrenado exitosamente!")
+                    # Entrenamiento con parámetros especificados
+                    model, scaler = train_svm(
+                        X_train, y_train,
+                        kernel=kernel,
+                        C=C,
+                        gamma=gamma,
+                        degree=degree,
+                        random_state=random_state
+                    )
                     
-                    else:  # Búsqueda Automática (Grid Search)
-                        from models.svm_classifier import grid_search_svm, create_param_grid, get_grid_search_results_df
-                        
-                        # Crear grid de parámetros según modo seleccionado
-                        param_grid = create_param_grid(search_mode)
-                        
-                        # Ejecutar Grid Search
-                        grid_results = grid_search_svm(
-                            X_train, y_train,
-                            param_grid=param_grid,
-                            cv=cv_folds_grid,
-                            scoring='accuracy',
-                            random_state=random_state
-                        )
-                        
-                        # Extraer mejor modelo y scaler
-                        model = grid_results['best_model']
-                        scaler = grid_results['best_scaler']
-                        
-                        # Extraer parámetros del mejor modelo
-                        best_params = grid_results['best_params']
-                        best_kernel = best_params.get('svm__kernel', 'rbf')
-                        best_C = best_params.get('svm__C', 1.0)
-                        best_gamma = best_params.get('svm__gamma', 'scale')
-                        best_degree = best_params.get('svm__degree', 3)
-                        
-                        # Guardar en session state
-                        st.session_state['model'] = model
-                        st.session_state['scaler'] = scaler
-                        st.session_state['X_train'] = X_train  # SIN escalar
-                        st.session_state['X_test'] = X_test    # SIN escalar
-                        st.session_state['y_train'] = y_train
-                        st.session_state['y_test'] = y_test
-                        st.session_state['label_encoder'] = label_encoder
-                        st.session_state['feature_columns'] = feature_columns
-                        st.session_state['target_column'] = target_column
-                        st.session_state['training_mode'] = 'grid_search'
-                        st.session_state['grid_results'] = grid_results
-                        st.session_state['grid_results_df'] = get_grid_search_results_df(grid_results)
-                        # Guardar parámetros del mejor modelo
-                        st.session_state['model_params'] = {
-                            'kernel': best_kernel,
-                            'C': best_C,
-                            'gamma': best_gamma if best_kernel != 'linear' else None,
-                            'degree': best_degree if best_kernel == 'poly' else None
-                        }
-                        
-                        # Mostrar mejores parámetros encontrados
-                        st.sidebar.success(f"✅ Mejor configuración encontrada!")
-                        st.sidebar.markdown(f"**Score CV:** {grid_results['best_score']:.4f}")
-                        st.sidebar.markdown(f"**Kernel:** {best_kernel}")
-                        st.sidebar.markdown(f"**C:** {best_C}")
-                        
-                        # Solo mostrar gamma si el kernel lo requiere
-                        if best_kernel in ['rbf', 'poly', 'sigmoid']:
-                            st.sidebar.markdown(f"**Gamma:** {best_gamma}")
-                        
-                        # Solo mostrar degree si es kernel poly
-                        if best_kernel == 'poly':
-                            st.sidebar.markdown(f"**Degree:** {best_degree}")
-                        
-                        st.sidebar.info(f"Se probaron {grid_results['n_combinations']} combinaciones")
+                    # Guardar en session state (datos SIN escalar para CV correcta)
+                    st.session_state['model'] = model
+                    st.session_state['scaler'] = scaler
+                    st.session_state['X_train'] = X_train  # SIN escalar
+                    st.session_state['X_test'] = X_test    # SIN escalar
+                    st.session_state['y_train'] = y_train
+                    st.session_state['y_test'] = y_test
+                    st.session_state['label_encoder'] = label_encoder
+                    st.session_state['feature_columns'] = feature_columns
+                    st.session_state['target_column'] = target_column
+                    # Guardar parámetros del modelo
+                    st.session_state['model_params'] = {
+                        'kernel': kernel,
+                        'C': C,
+                        'gamma': gamma,
+                        'degree': degree
+                    }
                     
+                    st.sidebar.success("✅ Modelo entrenado exitosamente!")
 
                 except Exception as e:
                     st.sidebar.error(f"❌ Error al entrenar el modelo: {str(e)}")
@@ -274,136 +172,7 @@ if uploaded_file is not None:
         # Mostrar resultados si el modelo está entrenado
         if 'model' in st.session_state:
             
-            # Si es Grid Search, mostrar vista simplificada
-            if st.session_state.get('training_mode') == 'grid_search':
-                st.markdown("---")
-                st.header("🏆 Configuración Óptima Encontrada")
-                st.markdown("*Se probaron múltiples combinaciones de parámetros mediante validación cruzada*")
-                
-                model_params = st.session_state.get('model_params', {})
-                grid_results = st.session_state['grid_results']
-                
-                # Obtener parámetros
-                best_kernel = model_params.get('kernel', 'N/A')
-                best_C = model_params.get('C', 'N/A')
-                best_gamma_raw = model_params.get('gamma', None)
-                best_degree = model_params.get('degree', None)
-                best_score = grid_results['best_score']
-                n_combinations = grid_results['n_combinations']
-                
-                # Convertir gamma numérico a formato compatible con modo manual
-                # Si gamma es un número, mostrar advertencia de que no se puede usar directamente
-                if best_gamma_raw is not None:
-                    try:
-                        gamma_float = float(best_gamma_raw)
-                        # Es un valor numérico, no 'scale' o 'auto'
-                        best_gamma = f"{gamma_float} (usar 'scale' en manual)"
-                        gamma_is_numeric = True
-                    except (ValueError, TypeError):
-                        # Es 'scale' o 'auto'
-                        best_gamma = best_gamma_raw
-                        gamma_is_numeric = False
-                else:
-                    best_gamma = None
-                    gamma_is_numeric = False
-                
-                # Crear contenido según el kernel
-                st.markdown("### 📋 Parámetros para ingresar en Modo Manual:")
-                
-                # Panel principal con la configuración
-                st.success(f"✅ **Se probaron {n_combinations} combinaciones** y la mejor obtuvo **{best_score*100:.2f}% de precisión** en validación cruzada.")
-                
-                # Mostrar configuración de forma clara
-                config_col1, config_col2 = st.columns(2)
-                
-                with config_col1:
-                    st.markdown("#### 🔧 Configuración del Kernel")
-                    st.markdown(f"**1. Kernel:** `{best_kernel}`")
-                    st.markdown(f"**2. Parámetro C:** `{best_C}`")
-                
-                with config_col2:
-                    st.markdown("#### ⚙️ Parámetros específicos")
-                    
-                    if best_kernel == 'linear':
-                        st.markdown("*El kernel linear no requiere parámetros adicionales*")
-                        st.markdown(f"- Gamma: No aplica")
-                        st.markdown(f"- Degree: No aplica")
-                    
-                    elif best_kernel == 'rbf':
-                        if best_gamma is not None:
-                            st.markdown(f"**3. Gamma:** `{best_gamma}`")
-                            if gamma_is_numeric:
-                                st.warning("⚠️ El Grid Search encontró un valor numérico para gamma. En modo manual, usa 'scale' o 'auto'.")
-                        st.markdown(f"- Degree: No aplica (solo para poly)")
-                    
-                    elif best_kernel == 'poly':
-                        if best_gamma is not None:
-                            st.markdown(f"**3. Gamma:** `{best_gamma}`")
-                            if gamma_is_numeric:
-                                st.warning("⚠️ El Grid Search encontró un valor numérico para gamma. En modo manual, usa 'scale' o 'auto'.")
-                        if best_degree is not None:
-                            st.markdown(f"**4. Degree:** `{best_degree}`")
-                    
-                    elif best_kernel == 'sigmoid':
-                        if best_gamma is not None:
-                            st.markdown(f"**3. Gamma:** `{best_gamma}`")
-                            if gamma_is_numeric:
-                                st.warning("⚠️ El Grid Search encontró un valor numérico para gamma. En modo manual, usa 'scale' o 'auto'.")
-                        st.markdown(f"- Degree: No aplica (solo para poly)")
-                
-                # Resumen visual
-                st.markdown("---")
-                st.markdown("### 📝 Resumen para copiar:")
-                
-                # Crear texto de resumen según kernel
-                if best_kernel == 'linear':
-                    resumen = f"""
-| Parámetro | Valor |
-|-----------|-------|
-| **Kernel** | {best_kernel} |
-| **C** | {best_C} |
-"""
-                elif best_kernel == 'rbf' or best_kernel == 'sigmoid':
-                    # Mostrar gamma solo si no es None
-                    gamma_display = best_gamma if best_gamma is not None else "N/A"
-                    resumen = f"""
-| Parámetro | Valor |
-|-----------|-------|
-| **Kernel** | {best_kernel} |
-| **C** | {best_C} |
-| **Gamma** | {gamma_display} |
-"""
-                    if gamma_is_numeric:
-                        resumen += "\n⚠️ **Nota:** El gamma es numérico. En modo manual, selecciona 'scale' o 'auto'.\n"
-                
-                elif best_kernel == 'poly':
-                    gamma_display = best_gamma if best_gamma is not None else "N/A"
-                    degree_display = best_degree if best_degree is not None else "N/A"
-                    resumen = f"""
-| Parámetro | Valor |
-|-----------|-------|
-| **Kernel** | {best_kernel} |
-| **C** | {best_C} |
-| **Gamma** | {gamma_display} |
-| **Degree** | {degree_display} |
-"""
-                    if gamma_is_numeric:
-                        resumen += "\n⚠️ **Nota:** El gamma es numérico. En modo manual, selecciona 'scale' o 'auto'.\n"
-                else:
-                    resumen = f"""
-| Parámetro | Valor |
-|-----------|-------|
-| **Kernel** | {best_kernel} |
-| **C** | {best_C} |
-| **Gamma** | {best_gamma} |
-| **Degree** | {best_degree} |
-"""
-                
-                st.markdown(resumen)
-                
-                st.info(f"💡 **Siguiente paso:** Cambia a modo **Manual** en el panel lateral, ingresa estos parámetros y entrena el modelo para verificar los resultados.")
-            
-            # Resultados del modelo entrenado (común para ambos modos)
+            # Resultados del modelo entrenado
             st.markdown("---")
             st.header("📈 Resultados del Modelo Entrenado")
             
@@ -500,12 +269,11 @@ if uploaded_file is not None:
                 n_classes = len(np.unique(y_test))
                 if n_classes == 2:
                     st.subheader("Clasificación Binaria")
-                    fig_roc = plot_roc_with_auc(model, X_test, y_test, scaler)
+                    fig_roc = plot_roc_curve(model, X_test, y_test, scaler)
                     st.pyplot(fig_roc)
                 else:
                     st.subheader("Clasificación Multiclase")
-                    fig_roc = plot_roc_with_auc(model, X_test, y_test, scaler, label_encoder.classes_)
-                    st.pyplot(fig_roc)
+                    st.info("La curva ROC para clasificación multiclase requiere configuración especial")
             
             # NUEVA SECCIÓN: Validación Cruzada
             st.markdown("---")
