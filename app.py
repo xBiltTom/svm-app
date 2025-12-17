@@ -5,8 +5,8 @@ from utils.data_processing import load_data, preprocess_data, split_data
 from models.svm_classifier import train_svm, predict_svm, get_model_metrics, cross_validate_svm, perform_stratified_kfold
 from utils.visualization import (
     plot_confusion_matrix, plot_decision_boundary, 
-    plot_roc_curve, plot_roc_multiclass, plot_cv_results, 
-    plot_cv_folds_comparison, plot_cv_scores_distribution
+    plot_roc_curve, plot_roc_multiclass, 
+    plot_cv_folds_comparison
 )
 
 st.set_page_config(
@@ -281,6 +281,45 @@ if uploaded_file is not None:
                     st.pyplot(fig_roc)
                     st.caption("ROC para cada clase con promedios micro (global) y macro (por clase)")
             
+            # Tabla de predicciones de prueba
+            st.markdown("---")
+            st.subheader("📋 Detalle de Predicciones del Conjunto de Prueba")
+            
+            # Crear DataFrame con predicciones
+            feature_cols = st.session_state['feature_columns']
+            predictions_df = pd.DataFrame(X_test, columns=feature_cols)
+            predictions_df['Clase Real'] = label_encoder.inverse_transform(y_test)
+            predictions_df['Clase Predicha'] = label_encoder.inverse_transform(y_test_pred)
+            predictions_df['¿Correcto?'] = predictions_df['Clase Real'] == predictions_df['Clase Predicha']
+            predictions_df['¿Correcto?'] = predictions_df['¿Correcto?'].map({True: '✅ Sí', False: '❌ No'})
+            
+            # Mostrar resumen
+            total = len(predictions_df)
+            correctos = (predictions_df['¿Correcto?'] == '✅ Sí').sum()
+            incorrectos = total - correctos
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total de Muestras", total)
+            with col2:
+                st.metric("Clasificaciones Correctas", correctos, delta=f"{correctos/total*100:.1f}%")
+            with col3:
+                st.metric("Clasificaciones Incorrectas", incorrectos, delta=f"-{incorrectos/total*100:.1f}%" if incorrectos > 0 else "0%", delta_color="inverse")
+            
+            # Filtro para ver solo errores
+            show_only_errors = st.checkbox("Mostrar solo clasificaciones incorrectas", value=False)
+            
+            if show_only_errors:
+                display_df = predictions_df[predictions_df['¿Correcto?'] == '❌ No']
+                if len(display_df) == 0:
+                    st.success("🎉 ¡No hay clasificaciones incorrectas!")
+                else:
+                    st.dataframe(display_df, height=300, use_container_width=True)
+            else:
+                st.dataframe(predictions_df, height=400, use_container_width=True)
+            
+            st.caption("Esta tabla muestra cada muestra del conjunto de prueba, su clasificación real, la predicción del modelo y si acertó o no.")
+            
             # Información del modelo entrenado
             st.markdown("---")
             with st.expander("ℹ️ Información del Modelo Entrenado", expanded=False):
@@ -427,29 +466,11 @@ if uploaded_file is not None:
                             delta=f"±{cv_results['f1']['std']:.3f}"
                         )
                     
-                    # Visualizaciones de CV
-                    st.markdown("### 📈 Visualizaciones de Validación Cruzada")
-                    
-                    tab_cv1, tab_cv2, tab_cv3 = st.tabs([
-                        "Promedios con Desviación",
-                        "Comparación por Fold", 
-                        "Distribución de Scores"
-                    ])
-                    
-                    with tab_cv1:
-                        fig_cv = plot_cv_results(cv_results)
-                        st.pyplot(fig_cv)
-                        st.caption("Métricas promedio con barras de error (desviación estándar)")
-                    
-                    with tab_cv2:
-                        fig_folds = plot_cv_folds_comparison(fold_results)
-                        st.pyplot(fig_folds)
-                        st.caption("Comparación de métricas en cada fold individual")
-                    
-                    with tab_cv3:
-                        fig_dist = plot_cv_scores_distribution(cv_results)
-                        st.pyplot(fig_dist)
-                        st.caption("Distribución de scores usando boxplots (mediana=línea roja, media=diamante verde)")
+                    # Visualización de CV - Solo comparación por fold
+                    st.markdown("### 📈 Comparación por Fold")
+                    fig_folds = plot_cv_folds_comparison(fold_results)
+                    st.pyplot(fig_folds)
+                    st.caption("Evolución de métricas por fold y resumen estadístico")
                     
                     # Tabla detallada por fold
                     with st.expander("📋 Resultados Detallados por Fold"):
