@@ -247,8 +247,8 @@ if uploaded_file is not None:
                         st.session_state['model_params'] = {
                             'kernel': best_kernel,
                             'C': best_C,
-                            'gamma': best_gamma,
-                            'degree': best_degree
+                            'gamma': best_gamma if best_kernel != 'linear' else None,
+                            'degree': best_degree if best_kernel == 'poly' else None
                         }
                         
                         # Mostrar mejores parámetros encontrados
@@ -256,9 +256,15 @@ if uploaded_file is not None:
                         st.sidebar.markdown(f"**Score CV:** {grid_results['best_score']:.4f}")
                         st.sidebar.markdown(f"**Kernel:** {best_kernel}")
                         st.sidebar.markdown(f"**C:** {best_C}")
-                        st.sidebar.markdown(f"**Gamma:** {best_gamma}")
+                        
+                        # Solo mostrar gamma si el kernel lo requiere
+                        if best_kernel in ['rbf', 'poly', 'sigmoid']:
+                            st.sidebar.markdown(f"**Gamma:** {best_gamma}")
+                        
+                        # Solo mostrar degree si es kernel poly
                         if best_kernel == 'poly':
                             st.sidebar.markdown(f"**Degree:** {best_degree}")
+                        
                         st.sidebar.info(f"Se probaron {grid_results['n_combinations']} combinaciones")
                     
 
@@ -280,10 +286,26 @@ if uploaded_file is not None:
                 # Obtener parámetros
                 best_kernel = model_params.get('kernel', 'N/A')
                 best_C = model_params.get('C', 'N/A')
-                best_gamma = model_params.get('gamma', 'N/A')
-                best_degree = model_params.get('degree', 'N/A')
+                best_gamma_raw = model_params.get('gamma', None)
+                best_degree = model_params.get('degree', None)
                 best_score = grid_results['best_score']
                 n_combinations = grid_results['n_combinations']
+                
+                # Convertir gamma numérico a formato compatible con modo manual
+                # Si gamma es un número, mostrar advertencia de que no se puede usar directamente
+                if best_gamma_raw is not None:
+                    try:
+                        gamma_float = float(best_gamma_raw)
+                        # Es un valor numérico, no 'scale' o 'auto'
+                        best_gamma = f"{gamma_float} (usar 'scale' en manual)"
+                        gamma_is_numeric = True
+                    except (ValueError, TypeError):
+                        # Es 'scale' o 'auto'
+                        best_gamma = best_gamma_raw
+                        gamma_is_numeric = False
+                else:
+                    best_gamma = None
+                    gamma_is_numeric = False
                 
                 # Crear contenido según el kernel
                 st.markdown("### 📋 Parámetros para ingresar en Modo Manual:")
@@ -308,15 +330,25 @@ if uploaded_file is not None:
                         st.markdown(f"- Degree: No aplica")
                     
                     elif best_kernel == 'rbf':
-                        st.markdown(f"**3. Gamma:** `{best_gamma}`")
+                        if best_gamma is not None:
+                            st.markdown(f"**3. Gamma:** `{best_gamma}`")
+                            if gamma_is_numeric:
+                                st.warning("⚠️ El Grid Search encontró un valor numérico para gamma. En modo manual, usa 'scale' o 'auto'.")
                         st.markdown(f"- Degree: No aplica (solo para poly)")
                     
                     elif best_kernel == 'poly':
-                        st.markdown(f"**3. Gamma:** `{best_gamma}`")
-                        st.markdown(f"**4. Degree:** `{best_degree}`")
+                        if best_gamma is not None:
+                            st.markdown(f"**3. Gamma:** `{best_gamma}`")
+                            if gamma_is_numeric:
+                                st.warning("⚠️ El Grid Search encontró un valor numérico para gamma. En modo manual, usa 'scale' o 'auto'.")
+                        if best_degree is not None:
+                            st.markdown(f"**4. Degree:** `{best_degree}`")
                     
                     elif best_kernel == 'sigmoid':
-                        st.markdown(f"**3. Gamma:** `{best_gamma}`")
+                        if best_gamma is not None:
+                            st.markdown(f"**3. Gamma:** `{best_gamma}`")
+                            if gamma_is_numeric:
+                                st.warning("⚠️ El Grid Search encontró un valor numérico para gamma. En modo manual, usa 'scale' o 'auto'.")
                         st.markdown(f"- Degree: No aplica (solo para poly)")
                 
                 # Resumen visual
@@ -332,22 +364,31 @@ if uploaded_file is not None:
 | **C** | {best_C} |
 """
                 elif best_kernel == 'rbf' or best_kernel == 'sigmoid':
+                    # Mostrar gamma solo si no es None
+                    gamma_display = best_gamma if best_gamma is not None else "N/A"
                     resumen = f"""
 | Parámetro | Valor |
 |-----------|-------|
 | **Kernel** | {best_kernel} |
 | **C** | {best_C} |
-| **Gamma** | {best_gamma} |
+| **Gamma** | {gamma_display} |
 """
+                    if gamma_is_numeric:
+                        resumen += "\n⚠️ **Nota:** El gamma es numérico. En modo manual, selecciona 'scale' o 'auto'.\n"
+                
                 elif best_kernel == 'poly':
+                    gamma_display = best_gamma if best_gamma is not None else "N/A"
+                    degree_display = best_degree if best_degree is not None else "N/A"
                     resumen = f"""
 | Parámetro | Valor |
 |-----------|-------|
 | **Kernel** | {best_kernel} |
 | **C** | {best_C} |
-| **Gamma** | {best_gamma} |
-| **Degree** | {best_degree} |
+| **Gamma** | {gamma_display} |
+| **Degree** | {degree_display} |
 """
+                    if gamma_is_numeric:
+                        resumen += "\n⚠️ **Nota:** El gamma es numérico. En modo manual, selecciona 'scale' o 'auto'.\n"
                 else:
                     resumen = f"""
 | Parámetro | Valor |
