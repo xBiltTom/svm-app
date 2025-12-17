@@ -178,6 +178,125 @@ def plot_roc_curve(model, X_test, y_test, scaler):
     plt.tight_layout()
     return fig
 
+def plot_roc_multiclass(model, X_test, y_test, scaler, class_names):
+    """
+    Visualiza la curva ROC para clasificación multiclase de forma clara e intuitiva
+    Muestra ROC por clase y promedio micro/macro
+    """
+    from sklearn.metrics import roc_curve, auc
+    from sklearn.preprocessing import label_binarize
+    from itertools import cycle
+    
+    X_test_scaled = scaler.transform(X_test)
+    
+    # Obtener clases únicas
+    classes = np.unique(y_test)
+    n_classes = len(classes)
+    
+    # Binarizar las etiquetas
+    y_test_bin = label_binarize(y_test, classes=classes)
+    
+    # Obtener probabilidades predichas
+    y_score = model.predict_proba(X_test_scaled)
+    
+    # Calcular ROC y AUC para cada clase
+    fpr = dict()
+    tpr = dict()
+    roc_auc = dict()
+    
+    for i in range(n_classes):
+        fpr[i], tpr[i], _ = roc_curve(y_test_bin[:, i], y_score[:, i])
+        roc_auc[i] = auc(fpr[i], tpr[i])
+    
+    # Calcular micro-average ROC curve y AUC
+    fpr["micro"], tpr["micro"], _ = roc_curve(y_test_bin.ravel(), y_score.ravel())
+    roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+    
+    # Calcular macro-average ROC curve y AUC
+    all_fpr = np.unique(np.concatenate([fpr[i] for i in range(n_classes)]))
+    mean_tpr = np.zeros_like(all_fpr)
+    for i in range(n_classes):
+        mean_tpr += np.interp(all_fpr, fpr[i], tpr[i])
+    mean_tpr /= n_classes
+    fpr["macro"] = all_fpr
+    tpr["macro"] = mean_tpr
+    roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
+    
+    # Crear figura
+    fig, ax = plt.subplots(figsize=(12, 9))
+    
+    # Colores para cada clase
+    colors = cycle(['navy', 'darkorange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan'])
+    
+    # Plotear ROC para cada clase
+    for i, color in zip(range(n_classes), colors):
+        class_name = class_names[i] if i < len(class_names) else f'Clase {i}'
+        ax.plot(fpr[i], tpr[i], color=color, lw=2.5, alpha=0.8,
+               label=f'{class_name} (AUC = {roc_auc[i]:.3f})')
+    
+    # Plotear micro-average
+    ax.plot(fpr["micro"], tpr["micro"],
+           label=f'Promedio Micro (AUC = {roc_auc["micro"]:.3f})',
+           color='deeppink', linestyle=':', lw=4, alpha=0.9)
+    
+    # Plotear macro-average
+    ax.plot(fpr["macro"], tpr["macro"],
+           label=f'Promedio Macro (AUC = {roc_auc["macro"]:.3f})',
+           color='darkblue', linestyle='--', lw=4, alpha=0.9)
+    
+    # Línea diagonal de referencia
+    ax.plot([0, 1], [0, 1], 'k--', lw=2, alpha=0.5, label='Clasificador Aleatorio (AUC = 0.500)')
+    
+    # Configuración de ejes
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlabel('Tasa de Falsos Positivos (FPR)\n(Proporción de negativos mal clasificados)', 
+                 fontsize=12, fontweight='bold')
+    ax.set_ylabel('Tasa de Verdaderos Positivos (TPR)\n(Proporción de positivos bien clasificados)', 
+                 fontsize=12, fontweight='bold')
+    ax.set_title('Curvas ROC - Clasificación Multiclase\nMayor área bajo la curva = Mejor discriminación por clase', 
+                fontsize=14, fontweight='bold', pad=20)
+    
+    # Leyenda fuera del gráfico para no obstruir
+    ax.legend(loc="center left", bbox_to_anchor=(1, 0.5), fontsize=10, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    
+    # Añadir cuadro explicativo
+    explanation = (
+        'Interpretación:\n'
+        '• Micro-promedio: Agregación global\n'
+        '• Macro-promedio: Promedio simple\n'
+        '• AUC cercano a 1.0 = Excelente\n'
+        '• AUC cercano a 0.5 = Aleatorio'
+    )
+    ax.text(0.02, 0.98, explanation, transform=ax.transAxes, 
+           fontsize=9, verticalalignment='top',
+           bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.85, edgecolor='black'))
+    
+    # Evaluación general del modelo
+    avg_auc = np.mean([roc_auc[i] for i in range(n_classes)])
+    if avg_auc >= 0.9:
+        evaluation = "EXCELENTE discriminación"
+        eval_color = 'darkgreen'
+    elif avg_auc >= 0.8:
+        evaluation = "MUY BUENA discriminación"
+        eval_color = 'green'
+    elif avg_auc >= 0.7:
+        evaluation = "BUENA discriminación"
+        eval_color = 'orange'
+    else:
+        evaluation = "Discriminación REGULAR"
+        eval_color = 'red'
+    
+    ax.text(0.98, 0.02, f'Promedio AUC: {avg_auc:.3f}\n{evaluation}', 
+           transform=ax.transAxes, fontsize=11, fontweight='bold',
+           ha='right', va='bottom', color=eval_color,
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, 
+                    edgecolor=eval_color, linewidth=2))
+    
+    plt.tight_layout()
+    return fig
+
 def plot_cv_results(cv_results, title="Resultados de Validación Cruzada"):
     """
     Visualiza los resultados de validación cruzada de forma clara y descriptiva

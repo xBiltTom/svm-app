@@ -5,7 +5,7 @@ from utils.data_processing import load_data, preprocess_data, split_data
 from models.svm_classifier import train_svm, predict_svm, get_model_metrics, cross_validate_svm, perform_stratified_kfold
 from utils.visualization import (
     plot_confusion_matrix, plot_decision_boundary, 
-    plot_roc_curve, plot_cv_results, 
+    plot_roc_curve, plot_roc_multiclass, plot_cv_results, 
     plot_cv_folds_comparison, plot_cv_scores_distribution
 )
 
@@ -35,10 +35,8 @@ if uploaded_file is not None:
     
     st.sidebar.success(f"✅ Dataset cargado: {df.shape[0]} filas, {df.shape[1]} columnas")
     
-    # Mostrar vista previa de los datos
-    with st.expander("📊 Vista previa del dataset", expanded=True):
-        st.dataframe(df.head(10))
-        
+    # Mostrar vista previa de los datos con scroll propio
+    with st.expander("📊 Vista previa del dataset", expanded=False):
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Filas", df.shape[0])
@@ -46,6 +44,9 @@ if uploaded_file is not None:
             st.metric("Columnas", df.shape[1])
         with col3:
             st.metric("Valores nulos", df.isnull().sum().sum())
+        
+        # DataFrame con scroll propio y altura fija
+        st.dataframe(df, height=400, use_container_width=True)
     
     # Selección de variables
     st.sidebar.subheader("🎯 Selección de Variables")
@@ -156,6 +157,8 @@ if uploaded_file is not None:
                     st.session_state['label_encoder'] = label_encoder
                     st.session_state['feature_columns'] = feature_columns
                     st.session_state['target_column'] = target_column
+                    st.session_state['random_state'] = random_state  # Guardar random_state
+                    st.session_state['test_size'] = test_size  # Guardar test_size
                     # Guardar parámetros del modelo
                     st.session_state['model_params'] = {
                         'kernel': kernel,
@@ -271,17 +274,54 @@ if uploaded_file is not None:
                     st.subheader("Clasificación Binaria")
                     fig_roc = plot_roc_curve(model, X_test, y_test, scaler)
                     st.pyplot(fig_roc)
+                    st.caption("La curva ROC muestra el balance entre tasa de verdaderos positivos y falsos positivos")
                 else:
                     st.subheader("Clasificación Multiclase")
-                    st.info("La curva ROC para clasificación multiclase requiere configuración especial")
+                    fig_roc = plot_roc_multiclass(model, X_test, y_test, scaler, label_encoder.classes_)
+                    st.pyplot(fig_roc)
+                    st.caption("ROC para cada clase con promedios micro (global) y macro (por clase)")
+            
+            # Información del modelo entrenado
+            st.markdown("---")
+            with st.expander("ℹ️ Información del Modelo Entrenado", expanded=False):
+                model_params = st.session_state.get('model_params', {})
+                random_state = st.session_state.get('random_state', 'N/A')
+                test_size = st.session_state.get('test_size', 'N/A')
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("#### 📋 Configuración")
+                    st.write(f"**Kernel:** {model_params.get('kernel', 'N/A')}")
+                    st.write(f"**Parámetro C:** {model_params.get('C', 'N/A')}")
+                    gamma_val = model_params.get('gamma', 'N/A')
+                    if model_params.get('kernel') in ['rbf', 'poly', 'sigmoid']:
+                        st.write(f"**Gamma:** {gamma_val}")
+                    if model_params.get('kernel') == 'poly':
+                        st.write(f"**Grado (degree):** {model_params.get('degree', 'N/A')}")
+                    st.write(f"**Random State:** {random_state}")
+                    st.write(f"**Test Size:** {test_size*100:.0f}%" if isinstance(test_size, float) else f"**Test Size:** {test_size}")
+                
+                with col2:
+                    st.markdown("#### 📊 Estadísticas")
+                    st.write(f"**Vectores de soporte:** {model.n_support_.sum()}")
+                    st.write(f"**Vectores por clase:** {list(model.n_support_)}")
+                    st.write(f"**Clases:** {list(label_encoder.classes_)}")
+                    st.write(f"**Features usadas:** {len(st.session_state['feature_columns'])}")
+                    st.write(f"**Tamaño entrenamiento:** {len(y_train)} muestras")
+                    st.write(f"**Tamaño prueba:** {len(y_test)} muestras")
             
             # NUEVA SECCIÓN: Validación Cruzada
             st.markdown("---")
             st.header("🔄 Validación Cruzada")
             
-            with st.expander("ℹ️ Sobre la Validación Cruzada", expanded=False):
-                st.markdown("""
-                **¿Qué es la Validación Cruzada?**
+            # Validar que el modelo esté entrenado antes de permitir CV
+            if 'model' not in st.session_state or 'X_train' not in st.session_state:
+                st.warning("⚠️ Debes entrenar un modelo primero antes de ejecutar la validación cruzada.")
+            else:
+                with st.expander("ℹ️ Sobre la Validación Cruzada", expanded=False):
+                    st.markdown("""
+                    **¿Qué es la Validación Cruzada?**
                 
                 La validación cruzada es una técnica robusta para evaluar el rendimiento del modelo:
                 
@@ -295,153 +335,137 @@ if uploaded_file is not None:
                 
                 **Métricas promediadas**: Obtenemos la media y desviación estándar de cada métrica
                 """)
-            
-            cv_folds = st.slider(
-                "Número de folds para validación cruzada",
-                min_value=2,
-                max_value=10,
-                value=5,
-                help="Mayor número de folds = más tiempo de cómputo pero mejor estimación"
-            )
-            
-            if st.button("🔄 Ejecutar Validación Cruzada", type="secondary", use_container_width=True):
-                with st.spinner(f"Ejecutando validación cruzada con {cv_folds} folds..."):
-                    try:
-                        # Obtener parámetros del modelo guardados
-                        model_params = st.session_state.get('model_params', {})
-                        kernel = model_params.get('kernel', 'rbf')
-                        C = model_params.get('C', 1.0)
-                        gamma = model_params.get('gamma', 'scale')
-                        degree = model_params.get('degree', 3)
-                        
-                        # Obtener todos los datos (sin split)
-                        X_full = st.session_state['X_train']
-                        y_full = st.session_state['y_train']
-                        
-                        # Combinar train y test para CV completa
-                        X_full = np.vstack([st.session_state['X_train'], st.session_state['X_test']])
-                        y_full = np.concatenate([st.session_state['y_train'], st.session_state['y_test']])
-                        
-                        # Ejecutar validación cruzada
-                        cv_results = cross_validate_svm(
-                            X_full, y_full,
-                            kernel=kernel,
-                            C=C,
-                            gamma=gamma,
-                            degree=degree,
-                            cv=cv_folds,
-                            random_state=random_state
+                
+                cv_folds = st.slider(
+                    "Número de folds para validación cruzada",
+                    min_value=2,
+                    max_value=10,
+                    value=5,
+                    help="Mayor número de folds = más tiempo de cómputo pero mejor estimación"
+                )
+                
+                if st.button("🔄 Ejecutar Validación Cruzada", type="secondary", use_container_width=True):
+                    with st.spinner(f"Ejecutando validación cruzada con {cv_folds} folds..."):
+                        try:
+                            # Obtener parámetros del modelo guardados
+                            model_params = st.session_state.get('model_params', {})
+                            kernel = model_params.get('kernel', 'rbf')
+                            C = model_params.get('C', 1.0)
+                            gamma = model_params.get('gamma', 'scale')
+                            degree = model_params.get('degree', 3)
+                            random_state = st.session_state.get('random_state', 42)  # Usar el random_state guardado
+                            
+                            # Obtener todos los datos (sin split)
+                            X_full = st.session_state['X_train']
+                            y_full = st.session_state['y_train']
+                            
+                            # Combinar train y test para CV completa
+                            X_full = np.vstack([st.session_state['X_train'], st.session_state['X_test']])
+                            y_full = np.concatenate([st.session_state['y_train'], st.session_state['y_test']])
+                            
+                            # Ejecutar validación cruzada
+                            cv_results = cross_validate_svm(
+                                X_full, y_full,
+                                kernel=kernel,
+                                C=C,
+                                gamma=gamma,
+                                degree=degree,
+                                cv=cv_folds,
+                                random_state=random_state
+                            )
+                            
+                            # Ejecutar StratifiedKFold detallado
+                            fold_results = perform_stratified_kfold(
+                                X_full, y_full,
+                                kernel=kernel,
+                                C=C,
+                                gamma=gamma,
+                                degree=degree,
+                                n_splits=cv_folds,
+                                random_state=random_state
+                            )
+                            
+                            st.session_state['cv_results'] = cv_results
+                            st.session_state['fold_results'] = fold_results
+                            
+                            st.success("✅ Validación cruzada completada!")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error en validación cruzada: {str(e)}")
+                
+                # Mostrar resultados de CV si existen
+                if 'cv_results' in st.session_state:
+                    cv_results = st.session_state['cv_results']
+                    fold_results = st.session_state['fold_results']
+                    
+                    st.subheader("📊 Resultados de Validación Cruzada")
+                    
+                    # Métricas promedio
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric(
+                            "Accuracy", 
+                            f"{cv_results['accuracy']['mean']:.3f}",
+                            delta=f"±{cv_results['accuracy']['std']:.3f}"
                         )
-                        
-                        # Ejecutar StratifiedKFold detallado
-                        fold_results = perform_stratified_kfold(
-                            X_full, y_full,
-                            kernel=kernel,
-                            C=C,
-                            gamma=gamma,
-                            degree=degree,
-                            n_splits=cv_folds,
-                            random_state=random_state
+                    with col2:
+                        st.metric(
+                            "Precision", 
+                            f"{cv_results['precision']['mean']:.3f}",
+                            delta=f"±{cv_results['precision']['std']:.3f}"
                         )
-                        
-                        st.session_state['cv_results'] = cv_results
-                        st.session_state['fold_results'] = fold_results
-                        
-                        st.success("✅ Validación cruzada completada!")
-                        
-                    except Exception as e:
-                        st.error(f"❌ Error en validación cruzada: {str(e)}")
-            
-            # Mostrar resultados de CV si existen
-            if 'cv_results' in st.session_state:
-                cv_results = st.session_state['cv_results']
-                fold_results = st.session_state['fold_results']
-                
-                st.subheader("📊 Resultados de Validación Cruzada")
-                
-                # Métricas promedio
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric(
-                        "Accuracy", 
-                        f"{cv_results['accuracy']['mean']:.3f}",
-                        delta=f"±{cv_results['accuracy']['std']:.3f}"
-                    )
-                with col2:
-                    st.metric(
-                        "Precision", 
-                        f"{cv_results['precision']['mean']:.3f}",
-                        delta=f"±{cv_results['precision']['std']:.3f}"
-                    )
-                with col3:
-                    st.metric(
-                        "Recall", 
-                        f"{cv_results['recall']['mean']:.3f}",
-                        delta=f"±{cv_results['recall']['std']:.3f}"
-                    )
-                with col4:
-                    st.metric(
-                        "F1-Score", 
-                        f"{cv_results['f1']['mean']:.3f}",
-                        delta=f"±{cv_results['f1']['std']:.3f}"
-                    )
-                
-                # Visualizaciones de CV
-                st.markdown("### 📈 Visualizaciones de Validación Cruzada")
-                
-                tab_cv1, tab_cv2, tab_cv3 = st.tabs([
-                    "Promedios con Desviación",
-                    "Comparación por Fold", 
-                    "Distribución de Scores"
-                ])
-                
-                with tab_cv1:
-                    fig_cv = plot_cv_results(cv_results)
-                    st.pyplot(fig_cv)
-                    st.caption("Métricas promedio con barras de error (desviación estándar)")
-                
-                with tab_cv2:
-                    fig_folds = plot_cv_folds_comparison(fold_results)
-                    st.pyplot(fig_folds)
-                    st.caption("Comparación de métricas en cada fold individual")
-                
-                with tab_cv3:
-                    fig_dist = plot_cv_scores_distribution(cv_results)
-                    st.pyplot(fig_dist)
-                    st.caption("Distribución de scores usando boxplots (mediana=línea roja, media=diamante verde)")
-                
-                # Tabla detallada por fold
-                with st.expander("📋 Resultados Detallados por Fold"):
-                    fold_df = pd.DataFrame([
-                        {
-                            'Fold': f['fold'],
-                            'Tamaño Train': f['train_size'],
-                            'Tamaño Val': f['val_size'],
-                            'Accuracy': f'{f["metrics"]["accuracy"]:.4f}',
-                            'Precision': f'{f["metrics"]["precision"]:.4f}',
-                            'Recall': f'{f["metrics"]["recall"]:.4f}',
-                            'F1-Score': f'{f["metrics"]["f1"]:.4f}'
-                        }
-                        for f in fold_results
+                    with col3:
+                        st.metric(
+                            "Recall", 
+                            f"{cv_results['recall']['mean']:.3f}",
+                            delta=f"±{cv_results['recall']['std']:.3f}"
+                        )
+                    with col4:
+                        st.metric(
+                            "F1-Score", 
+                            f"{cv_results['f1']['mean']:.3f}",
+                            delta=f"±{cv_results['f1']['std']:.3f}"
+                        )
+                    
+                    # Visualizaciones de CV
+                    st.markdown("### 📈 Visualizaciones de Validación Cruzada")
+                    
+                    tab_cv1, tab_cv2, tab_cv3 = st.tabs([
+                        "Promedios con Desviación",
+                        "Comparación por Fold", 
+                        "Distribución de Scores"
                     ])
-                    st.dataframe(fold_df, use_container_width=True)
-            
-            # Información del modelo
-            st.markdown("---")
-            with st.expander("ℹ️ Información del Modelo"):
-                model_params = st.session_state.get('model_params', {})
-                kernel_info = model_params.get('kernel', 'N/A')
-                C_info = model_params.get('C', 'N/A')
-                gamma_info = model_params.get('gamma', 'N/A')
-                degree_info = model_params.get('degree', 'N/A')
-                
-                st.write(f"**Kernel:** {kernel_info}")
-                st.write(f"**C:** {C_info}")
-                st.write(f"**Gamma:** {gamma_info}")
-                if kernel_info == 'poly':
-                    st.write(f"**Grado:** {degree_info}")
-                st.write(f"**Número de vectores de soporte:** {model.n_support_.sum()}")
-                st.write(f"**Clases:** {list(label_encoder.classes_)}")
+                    
+                    with tab_cv1:
+                        fig_cv = plot_cv_results(cv_results)
+                        st.pyplot(fig_cv)
+                        st.caption("Métricas promedio con barras de error (desviación estándar)")
+                    
+                    with tab_cv2:
+                        fig_folds = plot_cv_folds_comparison(fold_results)
+                        st.pyplot(fig_folds)
+                        st.caption("Comparación de métricas en cada fold individual")
+                    
+                    with tab_cv3:
+                        fig_dist = plot_cv_scores_distribution(cv_results)
+                        st.pyplot(fig_dist)
+                        st.caption("Distribución de scores usando boxplots (mediana=línea roja, media=diamante verde)")
+                    
+                    # Tabla detallada por fold
+                    with st.expander("📋 Resultados Detallados por Fold"):
+                        fold_df = pd.DataFrame([
+                            {
+                                'Fold': f['fold'],
+                                'Tamaño Train': f['train_size'],
+                                'Tamaño Val': f['val_size'],
+                                'Accuracy': f'{f["metrics"]["accuracy"]:.4f}',
+                                'Precision': f'{f["metrics"]["precision"]:.4f}',
+                                'Recall': f'{f["metrics"]["recall"]:.4f}',
+                                'F1-Score': f'{f["metrics"]["f1"]:.4f}'
+                            }
+                            for f in fold_results
+                        ])
+                        st.dataframe(fold_df, use_container_width=True)
                 
     else:
         st.warning("⚠️ Por favor selecciona al menos una variable predictora")
